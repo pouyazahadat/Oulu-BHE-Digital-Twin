@@ -69,7 +69,7 @@ with header_center:
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<div class="bhe-subtitle">Stakeholder demonstrator: current BHE state, short-term forecast and simple what-if analysis.</div>',
+        '<div class="bhe-subtitle">current BHE state, short-term forecast and simple what-if analysis.</div>',
         unsafe_allow_html=True,
     )
 
