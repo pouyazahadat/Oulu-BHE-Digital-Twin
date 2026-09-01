@@ -65,7 +65,7 @@ with header_left:
 
 with header_center:
     st.markdown(
-        '<div class="bhe-title">Borehole Heat Exchanger Digital Twin</div>',
+        '<div class="bhe-title">Oulu Borehole Heat Exchanger Digital Twin</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
