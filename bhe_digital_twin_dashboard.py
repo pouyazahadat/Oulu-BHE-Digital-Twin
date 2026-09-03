@@ -772,9 +772,14 @@ replayed and used to initialize the demonstrator.
         )
         .reset_index()
     )
-    scenario_summary['Duration [h]'] = (
-        scenario_summary['End_time_min'] - scenario_summary['Start_time_min']
-    ) / 60.0
+    # Round scenario duration UP to the next whole hour for stakeholder display.
+    # Example: 71.2 h -> 72 h
+    scenario_summary['Duration [h]'] = np.ceil(
+        (
+            scenario_summary['End_time_min']
+            - scenario_summary['Start_time_min']
+        ) / 60.0
+    ).astype(int)
 
     with st.expander('Show recorded scenario summary'):
         st.dataframe(
