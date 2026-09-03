@@ -107,6 +107,7 @@ RIGHT_LOGO = BASE_DIR / "right logo.png"
 SITE_LOGO = BASE_DIR / "Site Logo.png"
 DEFAULT_DATA_PATH = BASE_DIR / "Oulu_all_sets.xlsx"
 DEFAULT_MODEL_PATH = BASE_DIR / "Oulu_BHE_Digital_Twin_model.pkl"
+ARX_FFNN_FIGURE_PATH = BASE_DIR / "arx_ffnn_structure_15_3_1.png"
 
 # Minimum vertical temperature range shown in plots.
 # This prevents very small temperature changes from looking visually exaggerated.
@@ -807,16 +808,22 @@ inputs implemented using a feed-forward neural network**.
   ΔTout(t), rather than the absolute outlet temperature directly.
 ''')
 
-    arx_fig, architecture_label, activation_name = make_arx_ffnn_figure(package)
-    st.plotly_chart(
-        arx_fig,
-        use_container_width=True,
-        config={'displayModeBar': False, 'displaylogo': False}
-    )
+    if ARX_FFNN_FIGURE_PATH.exists():
+        st.image(
+            str(ARX_FFNN_FIGURE_PATH),
+            caption='Illustrative ARX-FFNN structure used in the demonstrator (15-3-1).',
+            use_container_width=True,
+        )
+    else:
+        st.warning(
+            'The ARX-FFNN figure file was not found. Add '
+            '"arx_ffnn_structure_15_3_1.png" to the same folder as this dashboard.'
+        )
 
     st.caption(
-        f'The architecture figure is read directly from the deployed model package. '
-        f'Current deployed architecture: {architecture_label}; activation: {activation_name}.'
+        'This is a static explanatory figure prepared for stakeholder communication. '
+        'It illustrates the selected 15-3-1 ARX-FFNN structure: input features → FFNN → '
+        'predicted temperature change ΔTout(t) → recursive update of Tout(t).'
     )
 
     st.markdown('''
