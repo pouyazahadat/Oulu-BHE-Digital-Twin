@@ -21,7 +21,7 @@ FOOTER1_PATH = ASSET_DIR / 'footer1.png'
 FOOTER2_PATH = ASSET_DIR / 'footer2.png'
 RIGHT_LOGO_PATH = ASSET_DIR / 'right logo.png'
 
-st.set_page_config(page_title='BHE Digital Twin', page_icon='🌍', layout='wide')
+st.set_page_config(page_title='Oulu BHE Digital Twin Demonstrator', page_icon='🌍', layout='wide')
 
 # A little spacing/alignment for the branded header and footer.
 st.markdown(
@@ -49,6 +49,18 @@ st.markdown(
         font-size: 0.85rem;
         margin-top: 0.6rem;
     }
+    .dev-badge {
+        display: inline-block;
+        margin-top: 0.25rem;
+        margin-bottom: 0.35rem;
+        padding: 0.22rem 0.60rem;
+        border-radius: 999px;
+        background: #fff3cd;
+        color: #7a5600;
+        border: 1px solid #f2d675;
+        font-size: 0.82rem;
+        font-weight: 650;
+    }
     </style>
     ''',
     unsafe_allow_html=True,
@@ -65,11 +77,15 @@ with header_left:
 
 with header_center:
     st.markdown(
-        '<div class="bhe-title">Oulu Borehole Heat Exchanger Digital Twin</div>',
+        '<div class="bhe-title">Oulu Borehole Heat Exchanger Digital Twin Demonstrator</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<div class="bhe-subtitle">current BHE state, short-term forecast and simple what-if analysis.</div>',
+        '<span class="dev-badge">Under development</span>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="bhe-subtitle">Research demonstrator for BHE state replay, short-term forecasting and simple what-if analysis.</div>',
         unsafe_allow_html=True,
     )
 
@@ -223,11 +239,152 @@ def calc_metrics(y_true, y_pred):
     r2 = r2_score(y_true, y_pred) if len(y_true) > 1 else np.nan
     return rmse, mae, r2
 
+def summarize_model_inputs(input_order):
+    q_lags = sorted(int(x.split('_')[-1]) for x in input_order if x.startswith('Q_lag_'))
+    tin_lags = sorted(int(x.split('_')[-1]) for x in input_order if x.startswith('T_in_lag_'))
+    tout_lags = sorted(int(x.split('_')[-1]) for x in input_order if x.startswith('T_out_lag_'))
+
+    groups = []
+    if 'Q' in input_order:
+        groups.append(
+            f"Flow rate Q\nQ(t) ... Q(t-{max(q_lags)})\n{1 + len(q_lags)} inputs"
+            if q_lags else "Flow rate Q\nQ(t)\n1 input"
+        )
+    if 'T_in' in input_order:
+        groups.append(
+            f"Inlet temperature Tin\nTin(t) ... Tin(t-{max(tin_lags)})\n{1 + len(tin_lags)} inputs"
+            if tin_lags else "Inlet temperature Tin\nTin(t)\n1 input"
+        )
+    if tout_lags:
+        groups.append(
+            f"Previous outlet temperature\nTout(t-1) ... Tout(t-{max(tout_lags)})\n{len(tout_lags)} inputs"
+        )
+    if 'Time_step' in input_order:
+        groups.append("Scenario time step\nTime_step(t)\n1 input")
+    return groups
+
+
+def make_arx_ffnn_figure(package):
+    model = package['model']
+    local_inputs = list(package['input_order'])
+    input_dim = len(local_inputs)
+
+    architecture = package.get('architecture', {})
+    hidden = architecture.get('hidden_layer_sizes', getattr(model, 'hidden_layer_sizes', ()))
+    if isinstance(hidden, int):
+        hidden = (hidden,)
+    hidden = tuple(hidden)
+
+    activation = architecture.get('activation', getattr(model, 'activation', 'unknown'))
+    output_dim = int(architecture.get('output_dim', 1))
+    groups = summarize_model_inputs(local_inputs)
+
+    fig = go.Figure()
+    x_inputs, x_hidden, x_output, x_update = 0.8, 2.6, 4.4, 6.2
+    ys = [2.5] if len(groups) == 1 else np.linspace(4.0, 1.0, len(groups))
+
+    for y, label in zip(ys, groups):
+        fig.add_shape(
+            type='rect',
+            x0=x_inputs-0.55, x1=x_inputs+0.55,
+            y0=y-0.38, y1=y+0.38,
+            line=dict(width=1.5),
+            fillcolor='rgba(230,240,255,0.65)'
+        )
+        fig.add_annotation(
+            x=x_inputs, y=float(y),
+            text=label.replace('\\n', '<br>'),
+            showarrow=False, align='center', font=dict(size=12)
+        )
+
+    hidden_text = '<br>'.join(
+        f"Hidden layer {i+1}: {n} neuron{'s' if n != 1 else ''}"
+        for i, n in enumerate(hidden)
+    ) or 'No hidden layer'
+
+    fig.add_shape(
+        type='rect',
+        x0=x_hidden-0.68, x1=x_hidden+0.68,
+        y0=1.75, y1=3.25,
+        line=dict(width=1.8),
+        fillcolor='rgba(255,241,204,0.75)'
+    )
+    fig.add_annotation(
+        x=x_hidden, y=2.5,
+        text=f"<b>FFNN</b><br>{hidden_text}<br>Activation: {activation}",
+        showarrow=False, align='center', font=dict(size=13)
+    )
+
+    fig.add_shape(
+        type='rect',
+        x0=x_output-0.62, x1=x_output+0.62,
+        y0=2.05, y1=2.95,
+        line=dict(width=1.8),
+        fillcolor='rgba(220,252,231,0.75)'
+    )
+    fig.add_annotation(
+        x=x_output, y=2.5,
+        text=f"<b>Network output</b><br>ΔTout(t)<br>{output_dim} output",
+        showarrow=False, align='center', font=dict(size=13)
+    )
+
+    fig.add_shape(
+        type='rect',
+        x0=x_update-0.78, x1=x_update+0.78,
+        y0=1.90, y1=3.10,
+        line=dict(width=1.8),
+        fillcolor='rgba(243,232,255,0.75)'
+    )
+    fig.add_annotation(
+        x=x_update, y=2.5,
+        text="<b>Recursive update</b><br>Tout(t) = Tout(t−1)<br>+ ΔTout(t)",
+        showarrow=False, align='center', font=dict(size=13)
+    )
+
+    for y in ys:
+        fig.add_annotation(
+            x=x_hidden-0.72, y=2.5,
+            ax=x_inputs+0.58, ay=float(y),
+            xref='x', yref='y', axref='x', ayref='y',
+            showarrow=True, arrowhead=3, arrowwidth=1.4, text=''
+        )
+
+    fig.add_annotation(
+        x=x_output-0.66, y=2.5,
+        ax=x_hidden+0.70, ay=2.5,
+        xref='x', yref='y', axref='x', ayref='y',
+        showarrow=True, arrowhead=3, arrowwidth=1.6, text=''
+    )
+    fig.add_annotation(
+        x=x_update-0.82, y=2.5,
+        ax=x_output+0.66, ay=2.5,
+        xref='x', yref='y', axref='x', ayref='y',
+        showarrow=True, arrowhead=3, arrowwidth=1.6, text=''
+    )
+
+    architecture_label = (
+        f"{input_dim}-" + "-".join(str(n) for n in hidden) + f"-{output_dim}"
+        if hidden else f"{input_dim}-{output_dim}"
+    )
+
+    fig.update_layout(
+        title=f"ARX-FFNN structure used in the demonstrator ({architecture_label})",
+        xaxis=dict(visible=False, range=[0, 7.1], fixedrange=True),
+        yaxis=dict(visible=False, range=[0.35, 4.65], fixedrange=True),
+        height=500,
+        margin=dict(l=20, r=20, t=70, b=25),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        showlegend=False
+    )
+    return fig, architecture_label, activation
+
+
 
 # ------------------------------------------------------------
 # SIDEBAR: MODEL + DATA PATHS
 # ------------------------------------------------------------
-st.sidebar.header("Digital twin controls")
+st.sidebar.header("Demonstrator controls")
 
 model_path = DEFAULT_MODEL_PATH
 data_path = DEFAULT_DATA_PATH
@@ -256,12 +413,24 @@ a, b, c = st.columns(3)
 with a:
     st.info('🌡️ **Physical BHE**\n\nSensors measure flow and temperatures.')
 with b:
-    st.info('🧠 **Digital Twin**\n\nThe FFNN estimates and predicts BHE thermal response.')
+    st.info('🧠 **Digital Twin Demonstrator**\n\nThe ARX-FFNN estimates and predicts the BHE thermal response using recorded operational data.')
 with c:
     st.info('⚡ **Energy Management**\n\nThe forecast can support better operating decisions.')
 
 scenario_ids = sorted(data['Scenario'].unique())
-scenario = st.sidebar.selectbox('Recorded scenario', scenario_ids)
+scenario = st.sidebar.selectbox(
+    'Recorded scenario',
+    scenario_ids,
+    help=(
+        'A scenario is one continuous recorded BHE operating period/test case. '
+        'Each scenario contains its own chronological sequence of flow rate, '
+        'inlet temperature and measured outlet temperature.'
+    )
+)
+st.sidebar.caption(
+    '**Scenario:** one continuous recorded operating period/test case from the '
+    'Oulu BHE dataset. Selecting a scenario chooses which recorded history is replayed.'
+)
 run = data[data['Scenario'] == scenario].sort_values('Time').reset_index(drop=True)
 
 times = run['Time'].to_numpy(dtype=float)
@@ -273,7 +442,7 @@ current_index = st.sidebar.slider('Current position in scenario', n_tout_lags+1,
 # ------------------------------------------------------------
 # TABS
 # ------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(['📈 Digital twin', '🎛️ What-if', 'ℹ️ Explanation'])
+tab1, tab2, tab3 = st.tabs(['📈 Digital twin demonstrator', '🎛️ What-if', 'ℹ️ Explanation'])
 
 with tab1:
     current_q = float(run.loc[current_index-1, 'Q'])
@@ -297,7 +466,7 @@ with tab1:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=history_x, y=run.loc[history_start:current_index-1, 'T_out'], mode='lines', name='Measured history', line=dict(width=3)))
     fig.add_trace(go.Scatter(x=forecast_x, y=forecast['Measured'], mode='lines', name='Measured future (validation only)', line=dict(width=2, dash='dot')))
-    fig.add_trace(go.Scatter(x=forecast_x, y=forecast['Predicted'], mode='lines', name='Digital twin forecast', line=dict(width=3)))
+    fig.add_trace(go.Scatter(x=forecast_x, y=forecast['Predicted'], mode='lines', name='Demonstrator forecast', line=dict(width=3)))
     # Keep the visible plot domain tied to the data actually being shown.
     # Plotly zooming changes only the camera/view; it does not create additional
     # forecast data. For this stakeholder dashboard we therefore lock the axes
@@ -459,7 +628,7 @@ T_{out,i}^{predicted}
 
 with tab2:
     st.subheader('What happens if operation changes?')
-    st.write('Change the future flow rate or BHE inlet temperature and the digital twin recalculates the predicted outlet temperature.')
+    st.write('Select the future flow rate and BHE inlet temperature and the demonstrator predicts the corresponding outlet-temperature trajectory.')
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -523,7 +692,7 @@ with tab2:
     whatif_y_pad = 0.10 * whatif_y_span
 
     fig2.update_layout(
-        title='Digital twin prediction for selected operating conditions',
+        title='Digital twin demonstrator prediction for selected operating conditions',
         xaxis_title='Elapsed time [h]',
         yaxis_title='Predicted BHE outlet temperature [°C]',
         hovermode='x unified',
@@ -568,21 +737,113 @@ with tab2:
     st.warning('Keep what-if changes within or close to the operating conditions represented in the training data.')
 
 with tab3:
-    st.subheader('How the digital twin works')
+    st.subheader('About this digital twin demonstrator')
+
+    st.info(
+        'This application is called a **digital twin demonstrator** because it '
+        'currently replays previously collected operational data rather than '
+        'receiving continuously updated live measurements from the physical BHE. '
+        'It demonstrates how a future online digital twin could operate once '
+        'a live data connection is available.'
+    )
+
     st.markdown('''
-### 1. Measurements describe the current BHE state
-The system provides **flow rate**, **inlet temperature** and **outlet temperature** every 10 minutes.
+### What does “scenario” mean?
 
-### 2. The FFNN represents the BHE dynamics
-The trained neural network uses the current and recent operating conditions to estimate how the outlet temperature changes.
+A **scenario** is one continuous recorded operating period/test case from the
+Oulu BHE dataset. Each scenario contains its own chronological sequence of
+flow rate, BHE inlet temperature, measured BHE outlet temperature and elapsed time.
 
-### 3. The twin predicts the future
-For a multi-step forecast, each predicted outlet temperature is fed back into the model. This is a **recursive prediction**.
-
-### 4. The EMS can use the forecast
-The energy-management system can evaluate operating decisions before they are applied to the physical BHE.
+Selecting a scenario therefore chooses which recorded operating period is
+replayed and used to initialize the demonstrator.
 ''')
-    st.success('Stakeholder message: The digital twin follows the thermal behaviour of the real borehole and predicts how its outlet temperature will develop over the next several hours.')
+
+    scenario_summary = (
+        data.groupby('Scenario')
+        .agg(
+            Points=('Time', 'size'),
+            Start_time_min=('Time', 'min'),
+            End_time_min=('Time', 'max'),
+            Q_min=('Q', 'min'),
+            Q_max=('Q', 'max'),
+            Tin_min=('T_in', 'min'),
+            Tin_max=('T_in', 'max')
+        )
+        .reset_index()
+    )
+    scenario_summary['Duration [h]'] = (
+        scenario_summary['End_time_min'] - scenario_summary['Start_time_min']
+    ) / 60.0
+
+    with st.expander('Show recorded scenario summary'):
+        st.dataframe(
+            scenario_summary[
+                ['Scenario', 'Duration [h]', 'Points', 'Q_min', 'Q_max', 'Tin_min', 'Tin_max']
+            ].rename(
+                columns={
+                    'Q_min': 'Flow min [L/s]',
+                    'Q_max': 'Flow max [L/s]',
+                    'Tin_min': 'Tin min [°C]',
+                    'Tin_max': 'Tin max [°C]'
+                }
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.subheader('ARX-FFNN model used for the BHE')
+
+    st.markdown('''
+The BHE surrogate is an **ARX-FFNN**: an **autoregressive model with exogenous
+inputs implemented using a feed-forward neural network**.
+
+- **Autoregressive (AR):** previous BHE outlet temperatures are used as inputs,
+  so the model carries information about the recent thermal state.
+- **Exogenous inputs (X):** the model also uses BHE flow rate and inlet
+  temperature, including their recent history.
+- **FFNN:** these inputs are passed through a compact feed-forward neural network
+  to represent the nonlinear relation between operation and BHE thermal response.
+- **Delta formulation:** the network predicts the temperature change
+  ΔTout(t), rather than the absolute outlet temperature directly.
+''')
+
+    arx_fig, architecture_label, activation_name = make_arx_ffnn_figure(package)
+    st.plotly_chart(
+        arx_fig,
+        use_container_width=True,
+        config={'displayModeBar': False, 'displaylogo': False}
+    )
+
+    st.caption(
+        f'The architecture figure is read directly from the deployed model package. '
+        f'Current deployed architecture: {architecture_label}; activation: {activation_name}.'
+    )
+
+    st.markdown('''
+### How the forecast is generated
+
+1. The selected scenario provides the recent measured operating history.
+2. The ARX-FFNN receives the current/recent flow rate, inlet temperature,
+   previous outlet temperatures and scenario time-step input.
+3. The network predicts the next outlet-temperature change.
+''')
+
+    st.latex(
+        r'\hat{T}_{out}(t)=\hat{T}_{out}(t-1)+\widehat{\Delta T}_{out}(t)'
+    )
+
+    st.markdown('''
+4. For a multi-step forecast, each predicted outlet temperature is fed back
+   into the next prediction. This is the **recursive prediction**.
+5. In What-if mode, the selected flow rate and inlet temperature are assumed
+   constant over the chosen prediction horizon.
+''')
+
+    st.success(
+        'Stakeholder message: this demonstrator shows how a compact machine-learning '
+        'surrogate can reproduce and forecast the thermal behaviour of the Oulu '
+        'borehole heat exchanger using recorded operating data.'
+    )
 
 # ------------------------------------------------------------
 # FOOTER BRANDING — visible at the bottom of every dashboard tab
@@ -603,6 +864,6 @@ with footer_right:
         st.warning('footer2.png not found')
 
 st.markdown(
-    '<div class="footer-note">BHE Digital Twin — research demonstrator</div>',
+    '<div class="footer-note">Oulu BHE Digital Twin Demonstrator — research prototype under development</div>',
     unsafe_allow_html=True,
 )
